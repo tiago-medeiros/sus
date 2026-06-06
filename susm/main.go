@@ -3,14 +3,19 @@
 
 package main
 
-import "os"
-import "fmt"
-import "flag"
-import "time"
-import "github.com/jan-provaznik/sus"
-import "github.com/NVIDIA/go-nvml/pkg/nvml"
+import (
+	"fmt"
+	"os"
+	"strings"
+	"time"
 
-func main () {
+	"flag"
+
+	"github.com/NVIDIA/go-nvml/pkg/nvml"
+	"github.com/jan-provaznik/sus"
+)
+
+func main() {
 	defer nvml.Shutdown()
 
 	interval := flag.Duration("t", time.Second, "Monitoring interval")
@@ -46,64 +51,79 @@ func main () {
 	}
 }
 
-func deviceReport (index int, device sus.AstralDevice) error {
-	// ... temperature
-	temp, ret := nvml.DeviceGetTemperature(device.NVMLDevice(), nvml.TEMPERATURE_GPU)
-	if ret != nvml.SUCCESS {
-		return fmt.Errorf("nvmlDeviceGetTemperature failed")
-	}
+func deviceReport(index int, device sus.AstralDevice) error {
+	gpuName := sus.DeviceGPUName(device.NVMLDevice())
+	printGpuHeader(gpuName)
 
-	// ... load, as reported via asus interface (not available on all GPUs)
 	pins, err := sus.ReadAstralDevicePins(device)
 	if err != nil {
 		return err
 	}
+	printPinSections(pins)
 
-	// ... GPU utilization
-	util := sus.NewGPUUtilization(device.NVMLDevice())
-
-	// ... brand name
-	brandName := sus.DeviceBrandName(device.NVMLDevice())
-
-	// ... print header line
-	gpuName := sus.DeviceGPUName(device.NVMLDevice())
-	fmt.Printf("%s  (%d)%s\n", gpuName, index, brandName)
-
-	// ... pin table: 4 sections side-by-side
-	fmt.Printf("          ")
-	for i := range pins {
-		fmt.Printf("| Pin %-2d", i)
-	}
-	fmt.Println()
-
-	// Volts
-	fmt.Printf("         V")
-	for _, pin := range pins {
-		fmt.Printf("|%7.3f %4.0f %4.0f", pin.Voltage(), pin.MinVoltage(), pin.MaxVoltage())
-	}
-	fmt.Println()
-
-	// Amps
-	fmt.Printf("          A")
-	for _, pin := range pins {
-		fmt.Printf("|%7.3f %4.0f %4.0f", pin.Current(), pin.MinCurrent(), pin.MaxCurrent())
-	}
-	fmt.Println()
-
-	// Watts
-	fmt.Printf("        W")
-	for _, pin := range pins {
-		fmt.Printf("|%7.1f %5.1f %5.1f", pin.Drawing(), pin.MinDrawing(), pin.MaxDrawing())
-	}
-	fmt.Println()
-
-	// ... GPU utilization
-	if util != nil {
-		fmt.Printf("  CORE %5.1f%%  MEM %5.1f%%\n", util.GPUUsage, util.MEMUsage)
-	}
-
-	// ... temperature
-	fmt.Printf("        temp: %3d °C\n", temp)
+	printSummary(device.NVMLDevice())
 
 	return nil
+}
+
+// printGpuHeader prints the GPU name framed by box-drawing chars.
+func printGpuHeader(gpuName string) {
+	bar := strings.Repeat("═", len(gpuName)+4)
+	fmt.Printf("  %s\n  | %s |\n  %s\n", bar, gpuName, bar)
+}
+
+// ── helpers to keep the three sections DRY ──────────────────────────────
+
+func printVolts(pins []sus.AstralDevicePin) {
+	bar := strings.Repeat("─", len("Volts"))
+	fmt.Printf("  ┌─ Volts\n")
+	for _, p := range pins {
+		fmt.Printf("  │ %d   V   %s   %s  %s\n", p.PinNum(), p.StrVoltage(), p.StrMinVoltage(), p.StrMaxVoltage())
+	}
+	fmt.Printf("  └%s\n", bar)
+}
+
+func printAmps(pins []sus.AstralDevicePin) {
+	bar := strings.Repeat("─", len("Amps"))
+	fmt.Printf("  ┌─ Amps\n")
+	for _, p := range pins {
+		fmt.Printf("  │ %d   A   %s   %s  %s\n", p.PinNum(), p.StrCurrent(), p.StrMinCurrent(), p.StrMaxCurrent())
+	}
+	fmt.Printf("  └%s\n", bar)
+}
+
+func printWatts(pins []sus.AstralDevicePin) {
+	bar := strings.Repeat("─", len("Watts"))
+	fmt.Printf("  ┌─ Watts\n")
+	for _, p := range pins {
+		fmt.Printf("  │ %d   W   %s   %s  %s\n", p.PinNum(), p.StrDrawing(), p.StrMinDrawing(), p.StrMaxDrawing())
+	}
+	fmt.Printf("  └%s\n", bar)
+}
+
+func printPinSections(pins []sus.AstralDevicePin) {
+	printVolts(pins)
+	printWatts(pins)
+	printAmps(pins)
+}
+
+func printSummary(dev nvml.Device) {
+	s := sus.NewGPUSummary(dev)
+
+	const labelWidth = 14 // width for "Core Usage"/"Memory Usage"/"GPU Temp"
+	const valWidth = 8    // width for each value column
+
+	fmt.Println("    ┌─ Summary")
+	fmt.Printf("    │ %-*s %s %s %s\n", labelWidth, "Core Usage",
+		s.FormatCur("%7.1f", s.GPUUsageCur), s.GPUUsageMinStr(), s.GPUUsageMaxStr())
+	fmt.Printf("    │ %-*s %s %s %s\n", labelWidth, "Memory Usage",
+		s.FormatCur("%7.1f", s.MEMUsageCur), s.MEMUsageMinStr(), s.MEMUsageMaxStr())
+	if s.HasTemp {
+		fmt.Printf("    │ %-*s %s %s %s\n", labelWidth, "GPU Temp",
+			s.FormatCur("%7d", s.TempCur), s.TempMinStr(), s.TempMaxStr())
+	} else {
+		fmt.Printf("    │ %-*s %s %s %s\n", labelWidth, "GPU Temp",
+			"N/A", "N/A", "N/A")
+	}
+	fmt.Printf("    └%s\n", strings.Repeat("─", labelWidth+valWidth*3+3))
 }
