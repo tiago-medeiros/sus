@@ -47,6 +47,7 @@ func (self AstralDevice) NVMLDevice () nvml.Device {
 }
 
 type AstralDevicePin struct {
+	pinNum     int     // 1-based pin number, set by caller
 	voltage    float64
 	minVoltage float64 // min voltage seen (tracks across calls when monitored)
 	maxVoltage float64 // max voltage seen (tracks across calls when monitored)
@@ -75,7 +76,7 @@ func (self AstralDevicePin) MinDrawing() float64  { return self.minVoltage * sel
 func (self AstralDevicePin) MaxDrawing() float64  { return self.maxVoltage * self.maxCurrent }
 
 // Output helpers for the new table display format.
-func (self AstralDevicePin) PinNum() int           { return -1 }          // set by caller via index
+func (self AstralDevicePin) PinNum() int           { return self.pinNum }
 func (self AstralDevicePin) StrVoltage() string    { return fmt.Sprintf("%7.3f", self.voltage) }
 func (self AstralDevicePin) StrMinVoltage() string { return fmt.Sprintf("%8.0f", self.minVoltage) }
 func (self AstralDevicePin) StrMaxVoltage() string { return fmt.Sprintf("%8.0f", self.maxVoltage) }
@@ -178,7 +179,14 @@ func ReadAstralDevicePins (target AstralDevice) ([]AstralDevicePin, error) {
 	result := make([]AstralDevicePin, 6)
 	for index := range 6 {
 		start := 4 * index
-		result[index] = readBuffer(buffer[start:start + 4])
+		pin := readBuffer(buffer[start:start + 4])
+		pin.pinNum = index + 1 // 1-based pin number for display
+		// Initialize min/max from current values so they are never zero on first read.
+		pin.minVoltage = pin.voltage
+		pin.maxVoltage = pin.voltage
+		pin.minCurrent = pin.current
+		pin.maxCurrent = pin.current
+		result[index] = pin
 	}
 
 	return result, nil
