@@ -148,7 +148,21 @@ func FindAstralDevices () ([]AstralDevice, error) {
 	return found, nil
 }
 
-func ReadAstralDevicePins (target AstralDevice) ([]AstralDevicePin, error) {
+// pinCacheKey builds a cache key from device UUID and sensor number.
+func pinCacheKey(uuid string, sensor int) string {
+	return fmt.Sprintf("%s:%d", uuid, sensor)
+}
+
+// pinCache stores previous pin readings so min/max persist across calls.
+var (
+	pinMu      sync.Mutex
+	pinCache   = make(map[string][]AstralDevicePin)
+)
+
+func ReadAstralDevicePins(target AstralDevice) ([]AstralDevicePin, error) {
+	uuid, _ := nvml.DeviceGetUUID(target.deviceHandle)
+	key := pinCacheKey(uuid, target.sensorNumber)
+
 	// Sensor address and register
 	// ... via https://long-cat.net/gitea/moosecrap/evga-icx
 	// ... via https://github.com/LibreHardwareMonitor/LibreHardwareMonitor
@@ -177,20 +191,34 @@ func ReadAstralDevicePins (target AstralDevice) ([]AstralDevicePin, error) {
 		return nil, fmt.Errorf("could not read sensor device")
 	}
 
-	result := make([]AstralDevicePin, 6)
+	pins := make([]AstralDevicePin, 6)
 	for index := range 6 {
 		start := 4 * index
 		pin := readBuffer(buffer[start:start + 4])
 		pin.pinNum = index + 1 // 1-based pin number for display
-		// Initialize min/max from current values so they are never zero on first read.
-		pin.minVoltage = pin.voltage
-		pin.maxVoltage = pin.voltage
-		pin.minCurrent = pin.current
-		pin.maxCurrent = pin.current
-		result[index] = pin
+		pins[index] = pin
 	}
 
-	return result, nil
+	// Merge min/max from previous read and store in cache.
+	pinMu.Lock()
+	prev, hasPrev := pinCache[key]
+	for index := range 6 {
+		if hasPrev && index < len(prev) {
+			pins[index].minVoltage = minVal(pins[index].voltage, prev[index].minVoltage)
+			pins[index].maxVoltage = maxVal(pins[index].voltage, prev[index].maxVoltage)
+			pins[index].minCurrent = minVal(pins[index].current, prev[index].minCurrent)
+			pins[index].maxCurrent = maxVal(pins[index].current, prev[index].maxCurrent)
+		} else {
+			pins[index].minVoltage = pins[index].voltage
+			pins[index].maxVoltage = pins[index].voltage
+			pins[index].minCurrent = pins[index].current
+			pins[index].maxCurrent = pins[index].current
+		}
+	}
+	pinCache[key] = pins
+	pinMu.Unlock()
+
+	return pins, nil
 }
 
 func ReadAstralDeviceLoad (target AstralDevice) (float64, error) {
