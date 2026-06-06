@@ -23,19 +23,36 @@ var astralCompatibleDevice = []uint32 { 0x89e31043 }
 //
 
 type AstralDevice struct {
-	sensorNumber int
-	deviceHandle nvml.Device
-	deviceDetailPci nvml.PciInfo 
+	sensorNumber      int
+	deviceHandle      nvml.Device
+	deviceDetailPci   nvml.PciInfo
 	deviceDetailIdentifier string
+	Serial            string
 }
 
 func (self AstralDevice) Identifier () string {
 	return self.deviceDetailIdentifier
 }
 
+func (self AstralDevice) Serial() string {
+	return self.Serial
+}
+
+func (self AstralDevice) GPUName() string {
+	return DeviceGPUName(self.deviceHandle)
+}
+
+func (self AstralDevice) NVMLDevice () nvml.Device {
+	return self.deviceHandle
+}
+
 type AstralDevicePin struct {
-	voltage float64
-	current float64 
+	voltage    float64
+	minVoltage float64 // min voltage seen (tracks across calls when monitored)
+	maxVoltage float64 // max voltage seen (tracks across calls when monitored)
+	current    float64
+	minCurrent float64 // min current seen (tracks across calls when monitored)
+	maxCurrent float64 // max current seen (tracks across calls when monitored)
 }
 
 func (self AstralDevicePin) Voltage () float64 {
@@ -49,6 +66,13 @@ func (self AstralDevicePin) Current () float64 {
 func (self AstralDevicePin) Drawing () float64 {
 	return self.voltage * self.current
 }
+
+func (self AstralDevicePin) MinVoltage () float64 { return self.minVoltage }
+func (self AstralDevicePin) MaxVoltage () float64 { return self.maxVoltage }
+func (self AstralDevicePin) MinCurrent () float64 { return self.minCurrent }
+func (self AstralDevicePin) MaxCurrent () float64 { return self.maxCurrent }
+func (self AstralDevicePin) MinDrawing() float64  { return self.minVoltage * self.minCurrent }
+func (self AstralDevicePin) MaxDrawing() float64  { return self.maxVoltage * self.maxCurrent }
 
 // Exported functions
 //
@@ -89,11 +113,14 @@ func FindAstralDevices () ([]AstralDevice, error) {
 			return nil, err
 		}
 
+		dmiProduct := dmiProduct()
+
 		current := AstralDevice {
 			sensorNumber: number,
 			deviceHandle: device,
 			deviceDetailPci: info,
 			deviceDetailIdentifier: uuid,
+			Serial: dmiProduct,
 		}
 
 		found = append(found, current)
@@ -201,8 +228,55 @@ func LimitAstralDeviceLoad (target AstralDevice) (float64, error) {
 	return watts, nil
 }
 
-// Supporting functions
+// GPU info types
 //
+
+type GPUUtilization struct {
+	GPUUsage  float64 // % of GPU cores used
+	MEMUsage  float64 // % of memory capacity used
+}
+
+func NewGPUUtilization(device nvml.Device) *GPUUtilization {
+	util, ret := nvml.DeviceGetUtilizationRates(device)
+	if ret != nvml.SUCCESS || (util.Gpu == 0 && util.Memory == 0) {
+		return nil // utilization not currently sampled
+	}
+	return &GPUUtilization{
+		GPUUsage:  float64(util.Gpu),
+		MEMUsage:  float64(util.Memory),
+	}
+}
+
+type GPUBrand = nvml.BrandType
+
+var BrandNames = map[nvml.BrandType]string {
+	nvml.BRAND_UNKNOWN:      "Unknown",
+	nvml.BRAND_QUADRO:       "Quadro",
+	nvml.BRAND_TESLA:        "Tesla",
+	nvml.BRAND_NVS:          "NVS",
+	nvml.BRAND_GRID:         "Grid",
+	nvml.BRAND_GEFORCE:      "GeForce",
+	nvml.BRAND_TITAN:        "Titan",
+	nvml.BRAND_NVIDIA_RTX:   "NVIDIA RTX",
+	nvml.BRAND_GEFORCE_RTX:  "GeForce RTX",
+	nvml.BRAND_TITAN_RTX:    "Titan RTX",
+}
+
+func DeviceBrandName(device nvml.Device) string {
+	brand, _ := nvml.DeviceGetBrand(device)
+	if name, ok := BrandNames[brand]; ok {
+		return name
+	}
+	return fmt.Sprintf("BrandType(%d)", int(brand))
+}
+
+func DeviceGPUName(device nvml.Device) string {
+	name, ret := nvml.DeviceGetName(device)
+	if ret != nvml.SUCCESS || len(name) == 0 {
+		return "Unknown GPU"
+	}
+	return name
+}
 
 func readBuffer (buffer []byte) AstralDevicePin {
 	wordOne := binary.BigEndian.Uint16(buffer[0:2])
@@ -260,3 +334,10 @@ func clamp[V cmp.Ordered] (value V, lower V, upper V) V {
 	return value
 }
 
+func dmiProduct () string {
+	data, err := os.ReadFile("/sys/class/dmi/id/product_name")
+	if err != nil {
+		return "unknown"
+	}
+	return strings.TrimSpace(string(data))
+}
