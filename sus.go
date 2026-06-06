@@ -9,6 +9,7 @@ import "cmp"
 import "slices"
 import "strings"
 import "encoding/binary"
+import "sync"
 
 import "github.com/NVIDIA/go-nvml/pkg/nvml"
 import "github.com/khirono/go-i2c/smbus"
@@ -287,8 +288,23 @@ type GPUSummary struct {
 	HasTemp      bool
 }
 
-// NewGPUSummary builds a GPUSummary from an NVML device handle.
+// gpuSummaryCache maps device UUID to the latest GPUSummary so that min/max
+// values persist across calls.
+var (
+	gpuSummaryMu   sync.Mutex
+	gpuSummaryCache = make(map[string]*GPUSummary)
+)
+
+// NewGPUSummary builds a GPUSummary from an NVML device handle, merging
+// min/max from the previous read so they track real extremes over time.
 func NewGPUSummary(device nvml.Device) *GPUSummary {
+	uuid, _ := nvml.DeviceGetUUID(device)
+
+	gpuSummaryMu.Lock()
+	defer gpuSummaryMu.Unlock()
+
+	prev, hasPrev := gpuSummaryCache[uuid]
+
 	s := &GPUSummary{}
 
 	util := NewGPUUtilization(device)
@@ -309,15 +325,51 @@ func NewGPUSummary(device nvml.Device) *GPUSummary {
 		s.HasTemp = false
 	}
 
-	// Initialize min/max from current values so they are never zero on first read.
-	s.GPUUsageMin = s.GPUUsageCur
-	s.GPUUsageMax = s.GPUUsageCur
-	s.MEMUsageMin = s.MEMUsageCur
-	s.MEMUsageMax = s.MEMUsageCur
-	s.TempMin = s.TempCur
-	s.TempMax = s.TempCur
+	if hasPrev {
+		// Merge min/max from previous read.
+		s.GPUUsageMin = minVal(s.GPUUsageCur, prev.GPUUsageMin)
+		s.GPUUsageMax = maxVal(s.GPUUsageCur, prev.GPUUsageMax)
+		s.MEMUsageMin = minVal(s.MEMUsageCur, prev.MEMUsageMin)
+		s.MEMUsageMax = maxVal(s.MEMUsageCur, prev.MEMUsageMax)
+		if s.HasTemp {
+			s.TempMin = minVal(s.TempCur, prev.TempMin)
+			s.TempMax = maxVal(s.TempCur, prev.TempMax)
+		} else {
+			s.TempMin = prev.TempMin
+			s.TempMax = prev.TempMax
+		}
+	} else {
+		// First read: initialize min/max from current values.
+		s.GPUUsageMin = s.GPUUsageCur
+		s.GPUUsageMax = s.GPUUsageCur
+		s.MEMUsageMin = s.MEMUsageCur
+		s.MEMUsageMax = s.MEMUsageCur
+		s.TempMin = s.TempCur
+		s.TempMax = s.TempCur
+	}
 
+	gpuSummaryCache[uuid] = s
 	return s
+}
+
+func minVal(a, b float64) float64 {
+	if a < 0 || b < 0 {
+		return -1 // N/A if either is unavailable
+	}
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxVal(a, b float64) float64 {
+	if a < 0 || b < 0 {
+		return -1 // N/A if either is unavailable
+	}
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // GPUUsageMinStr returns the formatted min GPU usage or "N/A".
@@ -329,8 +381,8 @@ func (s *GPUSummary) MEMUsageMinStr() string { return valOrNA(s.MEMUsageMin, "%7
 func (s *GPUSummary) MEMUsageMaxStr() string { return valOrNA(s.MEMUsageMax, "%7.1f") }
 
 // TempMinStr returns the formatted min temperature or "N/A".
-func (s *GPUSummary) TempMinStr() string { return valOrNA(s.TempMin, "%7d") }
-func (s *GPUSummary) TempMaxStr() string { return valOrNA(s.TempMax, "%7d") }
+func (s *GPUSummary) TempMinStr() string { return valOrNA(s.TempMin, "%7.0f") }
+func (s *GPUSummary) TempMaxStr() string { return valOrNA(s.TempMax, "%7.0f") }
 
 // FormatCur formats a current value or returns "N/A" when unavailable.
 func (s *GPUSummary) FormatCur(fmtStr string, v float64) string {
