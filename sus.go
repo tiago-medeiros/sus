@@ -272,6 +272,81 @@ func NewGPUUtilization(device nvml.Device) *GPUUtilization {
 	}
 }
 
+// GPUSummary aggregates GPU core usage, memory usage, and temperature with
+// current / min / max values suitable for table output.
+type GPUSummary struct {
+	GPUUsageCur  float64 // current GPU core utilization %
+	GPUUsageMin  float64 // min GPU core utilization % (N/A when unavailable)
+	GPUUsageMax  float64 // max GPU core utilization % (N/A when unavailable)
+	MEMUsageCur  float64 // current memory utilization %
+	MEMUsageMin  float64 // min memory utilization % (N/A when unavailable)
+	MEMUsageMax  float64 // max memory utilization % (N/A when unavailable)
+	TempCur      float64 // current GPU temperature (°C)
+	TempMin      float64 // min GPU temperature (°C, N/A when unavailable)
+	TempMax      float64 // max GPU temperature (°C, N/A when unavailable)
+	HasTemp      bool
+}
+
+// NewGPUSummary builds a GPUSummary from an NVML device handle.
+func NewGPUSummary(device nvml.Device) *GPUSummary {
+	s := &GPUSummary{
+		GPUUsageMin: -1,
+		GPUUsageMax: -1,
+		MEMUsageMin: -1,
+		MEMUsageMax: -1,
+		TempMin:     -1,
+		TempMax:     -1,
+	}
+
+	util := NewGPUUtilization(device)
+	if util != nil {
+		s.GPUUsageCur = util.GPUUsage
+		s.MEMUsageCur = util.MEMUsage
+	} else {
+		s.GPUUsageCur = -1
+		s.MEMUsageCur = -1
+	}
+
+	temp, ret := nvml.DeviceGetTemperature(device, nvml.TEMPERATURE_GPU)
+	if ret == nvml.SUCCESS {
+		s.TempCur = float64(temp)
+		s.HasTemp = true
+	} else {
+		s.TempCur = -1
+		s.HasTemp = false
+	}
+
+	return s
+}
+
+// GPUUsageMinStr returns the formatted min GPU usage or "N/A".
+func (s *GPUSummary) GPUUsageMinStr() string { return valOrNA(s.GPUUsageMin, "%7.1f") }
+func (s *GPUSummary) GPUUsageMaxStr() string { return valOrNA(s.GPUUsageMax, "%7.1f") }
+
+// MEMUsageMinStr returns the formatted min memory usage or "N/A".
+func (s *GPUSummary) MEMUsageMinStr() string { return valOrNA(s.MEMUsageMin, "%7.1f") }
+func (s *GPUSummary) MEMUsageMaxStr() string { return valOrNA(s.MEMUsageMax, "%7.1f") }
+
+// TempMinStr returns the formatted min temperature or "N/A".
+func (s *GPUSummary) TempMinStr() string { return valOrNA(s.TempMin, "%7d") }
+func (s *GPUSummary) TempMaxStr() string { return valOrNA(s.TempMax, "%7d") }
+
+// FormatCur formats a current value or returns "N/A" when unavailable.
+func (s *GPUSummary) FormatCur(fmtStr string, v float64) string {
+	if v < 0 {
+		return "N/A"
+	}
+	return fmt.Sprintf(fmtStr, v)
+}
+
+func valOrNA[T ~int | ~float64](v T, fmtStr string) string {
+	if v < 0 {
+		return "N/A"
+	}
+	s := fmt.Sprintf(fmtStr, v)
+	return s
+}
+
 type GPUBrand = nvml.BrandType
 
 var BrandNames = map[nvml.BrandType]string {
