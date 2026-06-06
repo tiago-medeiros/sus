@@ -78,7 +78,7 @@ func printVolts(pins []sus.AstralDevicePin) {
 	bar := strings.Repeat("─", len("Volts"))
 	fmt.Printf("  ┌─ Volts\n")
 	for _, p := range pins {
-		fmt.Printf("  │ %d   V   %s   %s  %s\n", p.PinNum(), p.StrVoltage(), p.StrMinVoltage(), p.StrMaxVoltage())
+		fmt.Printf("  │ %d   %s   %s  %s\n", p.PinNum(), p.StrVoltage(), p.StrMinVoltage(), p.StrMaxVoltage())
 	}
 	fmt.Printf("  └%s\n", bar)
 }
@@ -87,7 +87,7 @@ func printAmps(pins []sus.AstralDevicePin) {
 	bar := strings.Repeat("─", len("Amps"))
 	fmt.Printf("  ┌─ Amps\n")
 	for _, p := range pins {
-		fmt.Printf("  │ %d   A   %s   %s  %s\n", p.PinNum(), p.StrCurrent(), p.StrMinCurrent(), p.StrMaxCurrent())
+		fmt.Printf("  │ %d   %s   %s  %s\n", p.PinNum(), p.StrCurrent(), p.StrMinCurrent(), p.StrMaxCurrent())
 	}
 	fmt.Printf("  └%s\n", bar)
 }
@@ -96,7 +96,7 @@ func printWatts(pins []sus.AstralDevicePin) {
 	bar := strings.Repeat("─", len("Watts"))
 	fmt.Printf("  ┌─ Watts\n")
 	for _, p := range pins {
-		fmt.Printf("  │ %d   W   %s   %s  %s\n", p.PinNum(), p.StrDrawing(), p.StrMinDrawing(), p.StrMaxDrawing())
+		fmt.Printf("  │ %d   %s   %s  %s\n", p.PinNum(), p.StrDrawing(), p.StrMinDrawing(), p.StrMaxDrawing())
 	}
 	fmt.Printf("  └%s\n", bar)
 }
@@ -120,7 +120,7 @@ func printSummary(dev nvml.Device) {
 		s.FormatCur("%7.1f", s.MEMUsageCur), s.MEMUsageMinStr(), s.MEMUsageMaxStr())
 	if s.HasTemp {
 		fmt.Printf("    │ %-*s %s %s %s\n", labelWidth, "GPU Temp",
-			s.FormatCur("%7d", s.TempCur), s.TempMinStr(), s.TempMaxStr())
+			s.FormatCur("%7.0f", s.TempCur), s.TempMinStr(), s.TempMaxStr())
 	} else {
 		fmt.Printf("    │ %-*s %s %s %s\n", labelWidth, "GPU Temp",
 			"N/A", "N/A", "N/A")
