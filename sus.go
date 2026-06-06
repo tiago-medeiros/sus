@@ -78,11 +78,11 @@ func (self AstralDevicePin) MaxDrawing() float64  { return self.maxVoltage * sel
 // Output helpers for the new table display format.
 func (self AstralDevicePin) PinNum() int           { return self.pinNum }
 func (self AstralDevicePin) StrVoltage() string    { return fmt.Sprintf("%7.3f", self.voltage) }
-func (self AstralDevicePin) StrMinVoltage() string { return fmt.Sprintf("%8.0f", self.minVoltage) }
-func (self AstralDevicePin) StrMaxVoltage() string { return fmt.Sprintf("%8.0f", self.maxVoltage) }
+func (self AstralDevicePin) StrMinVoltage() string { return fmt.Sprintf("%8.3f", self.minVoltage) }
+func (self AstralDevicePin) StrMaxVoltage() string { return fmt.Sprintf("%8.3f", self.maxVoltage) }
 func (self AstralDevicePin) StrCurrent() string    { return fmt.Sprintf("%7.3f", self.current) }
-func (self AstralDevicePin) StrMinCurrent() string { return fmt.Sprintf("%8.0f", self.minCurrent) }
-func (self AstralDevicePin) StrMaxCurrent() string { return fmt.Sprintf("%8.0f", self.maxCurrent) }
+func (self AstralDevicePin) StrMinCurrent() string { return fmt.Sprintf("%8.3f", self.minCurrent) }
+func (self AstralDevicePin) StrMaxCurrent() string { return fmt.Sprintf("%8.3f", self.maxCurrent) }
 func (self AstralDevicePin) StrDrawing() string    { return fmt.Sprintf("%7.1f", self.Drawing()) }
 func (self AstralDevicePin) StrMinDrawing() string { return fmt.Sprintf("%8.1f", self.MinDrawing()) }
 func (self AstralDevicePin) StrMaxDrawing() string { return fmt.Sprintf("%8.1f", self.MaxDrawing()) }
@@ -289,14 +289,7 @@ type GPUSummary struct {
 
 // NewGPUSummary builds a GPUSummary from an NVML device handle.
 func NewGPUSummary(device nvml.Device) *GPUSummary {
-	s := &GPUSummary{
-		GPUUsageMin: -1,
-		GPUUsageMax: -1,
-		MEMUsageMin: -1,
-		MEMUsageMax: -1,
-		TempMin:     -1,
-		TempMax:     -1,
-	}
+	s := &GPUSummary{}
 
 	util := NewGPUUtilization(device)
 	if util != nil {
@@ -315,6 +308,14 @@ func NewGPUSummary(device nvml.Device) *GPUSummary {
 		s.TempCur = -1
 		s.HasTemp = false
 	}
+
+	// Initialize min/max from current values so they are never zero on first read.
+	s.GPUUsageMin = s.GPUUsageCur
+	s.GPUUsageMax = s.GPUUsageCur
+	s.MEMUsageMin = s.MEMUsageCur
+	s.MEMUsageMax = s.MEMUsageCur
+	s.TempMin = s.TempCur
+	s.TempMax = s.TempCur
 
 	return s
 }
