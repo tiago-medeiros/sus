@@ -27,7 +27,7 @@ type AstralDevice struct {
 	deviceHandle      nvml.Device
 	deviceDetailPci   nvml.PciInfo
 	deviceDetailIdentifier string
-	Serial            string
+	deviceDetailSerial string
 }
 
 func (self AstralDevice) Identifier () string {
@@ -35,7 +35,7 @@ func (self AstralDevice) Identifier () string {
 }
 
 func (self AstralDevice) Serial() string {
-	return self.Serial
+	return self.deviceDetailSerial
 }
 
 func (self AstralDevice) GPUName() string {
@@ -73,6 +73,23 @@ func (self AstralDevicePin) MinCurrent () float64 { return self.minCurrent }
 func (self AstralDevicePin) MaxCurrent () float64 { return self.maxCurrent }
 func (self AstralDevicePin) MinDrawing() float64  { return self.minVoltage * self.minCurrent }
 func (self AstralDevicePin) MaxDrawing() float64  { return self.maxVoltage * self.maxCurrent }
+
+// Output helpers for the new table display format.
+func (self AstralDevicePin) PinNum() int           { return -1 }          // set by caller via index
+func (self AstralDevicePin) StrVoltage() string    { return fmt.Sprintf("%7.3f", self.voltage) }
+func (self AstralDevicePin) StrMinVoltage() string { return fmt.Sprintf("%8.0f", self.minVoltage) }
+func (self AstralDevicePin) StrMaxVoltage() string { return fmt.Sprintf("%8.0f", self.maxVoltage) }
+func (self AstralDevicePin) StrCurrent() string    { return fmt.Sprintf("%7.3f", self.current) }
+func (self AstralDevicePin) StrMinCurrent() string { return fmt.Sprintf("%8.0f", self.minCurrent) }
+func (self AstralDevicePin) StrMaxCurrent() string { return fmt.Sprintf("%8.0f", self.maxCurrent) }
+func (self AstralDevicePin) StrDrawing() string    { return fmt.Sprintf("%7.1f", self.Drawing()) }
+func (self AstralDevicePin) StrMinDrawing() string { return fmt.Sprintf("%8.1f", self.MinDrawing()) }
+func (self AstralDevicePin) StrMaxDrawing() string { return fmt.Sprintf("%8.1f", self.MaxDrawing()) }
+
+// PinHeader returns the header line for a single pin column in the table body.
+func PinHeader(i int) string {
+	return fmt.Sprintf("%3d", i+1)
+}
 
 // Exported functions
 //
@@ -120,7 +137,7 @@ func FindAstralDevices () ([]AstralDevice, error) {
 			deviceHandle: device,
 			deviceDetailPci: info,
 			deviceDetailIdentifier: uuid,
-			Serial: dmiProduct,
+			deviceDetailSerial: dmiProduct,
 		}
 
 		found = append(found, current)

@@ -42,56 +42,68 @@ func main () {
 			}
 		}
 		fmt.Println()
-		time.Sleep(* interval)
+		time.Sleep(*interval)
 	}
 }
 
 func deviceReport (index int, device sus.AstralDevice) error {
-	// ... load, as reported via nvml
-	load, err := sus.ReadAstralDeviceLoad(device)
-	if err != nil {
-		return err
+	// ... temperature
+	temp, ret := nvml.DeviceGetTemperature(device.NVMLDevice(), nvml.TEMPERATURE_GPU)
+	if ret != nvml.SUCCESS {
+		return fmt.Errorf("nvmlDeviceGetTemperature failed")
 	}
 
-	// ... load, as reported via asus interface
+	// ... load, as reported via asus interface (not available on all GPUs)
 	pins, err := sus.ReadAstralDevicePins(device)
 	if err != nil {
 		return err
 	}
 
-	// ... calculate statistics
-	totalDraw := 0.0
-	upperDraw := 0.0
-	lowerDraw := 1e6
+	// ... GPU utilization
+	util := sus.NewGPUUtilization(device.NVMLDevice())
 
-	for _, pin := range pins {
-		value := pin.Drawing()
-		if value > upperDraw {
-			upperDraw = value
-		}
-		if value < lowerDraw {
-			lowerDraw = value
-		}
-		totalDraw = totalDraw + value
-	}
+	// ... brand name
+	brandName := sus.DeviceBrandName(device.NVMLDevice())
 
-	// ... calculate draw match
-	matchDraw := lowerDraw / upperDraw
+	// ... print header line
+	gpuName := sus.DeviceGPUName(device.NVMLDevice())
+	fmt.Printf("%s  (%d)%s\n", gpuName, index, brandName)
 
-	// ... report
-	fmt.Printf("Device (%d) known as (%s)\n", 
-		index, device.Identifier())
-	fmt.Printf("... total load %5.1f W\n", load)
-	fmt.Printf("... total draw %5.1f W (min %5.1f max %5.1f W) rate %.2f\n", 
-		totalDraw, lowerDraw, upperDraw, matchDraw)
-
-	fmt.Printf("... pins  draw ")
-	for _, pin := range pins {
-		value := pin.Drawing()
-		fmt.Printf("%5.1f W ", value)
+	// ... pin table: 4 sections side-by-side
+	fmt.Printf("          ")
+	for i := range pins {
+		fmt.Printf("| Pin %-2d", i)
 	}
 	fmt.Println()
 
+	// Volts
+	fmt.Printf("         V")
+	for _, pin := range pins {
+		fmt.Printf("|%7.3f %4.0f %4.0f", pin.Voltage(), pin.MinVoltage(), pin.MaxVoltage())
+	}
+	fmt.Println()
+
+	// Amps
+	fmt.Printf("          A")
+	for _, pin := range pins {
+		fmt.Printf("|%7.3f %4.0f %4.0f", pin.Current(), pin.MinCurrent(), pin.MaxCurrent())
+	}
+	fmt.Println()
+
+	// Watts
+	fmt.Printf("        W")
+	for _, pin := range pins {
+		fmt.Printf("|%7.1f %5.1f %5.1f", pin.Drawing(), pin.MinDrawing(), pin.MaxDrawing())
+	}
+	fmt.Println()
+
+	// ... GPU utilization
+	if util != nil {
+		fmt.Printf("  CORE %5.1f%%  MEM %5.1f%%\n", util.GPUUsage, util.MEMUsage)
+	}
+
+	// ... temperature
+	fmt.Printf("        temp: %3d °C\n", temp)
+
 	return nil
 }
-
